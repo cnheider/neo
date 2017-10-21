@@ -1,111 +1,174 @@
-import subprocess
-import os
-
 import logging
-import functools
-
-import time
+import os
 import shlex
+import subprocess
+import time
 
-from .messaging import *
+import neodroid.messaging as messaging
+from neodroid.utilities.reaction_factory import verify_reaction
 
 
 class NeodroidEnvironment(object):
-  def __init__(self, ip="127.0.0.1",
+  def __init__(self,
+               ip="127.0.0.1",
                port=5555,
-               on_connected_callback=print,
                connect_to_running=False,
                name='carscene.exe',
-               path_to_executatble_directory=os.path.join(os.path.dirname(os.path.realpath(__file__)),'environments')):
+               path_to_executables_directory=os.path.join(
+                   os.path.dirname(os.path.realpath(__file__)),
+                   'environments'),
+               seconds_before_connect=8,
+               debug_logging=False,
+               on_connected_callback=None,
+               on_disconnected_callback=None):
 
-    #Logging
-    logging.basicConfig(filename='log.txt', level=logging.DEBUG)
-    self._logger = logging.getLogger(__name__)
-    self._logger.debug('Initializing Environment')
+    # Logging
+    self._debug_logging = debug_logging
+    if self._debug_logging:
+      logging.basicConfig(filename='log.txt', level=logging.DEBUG)
+      self._logger = logging.getLogger(__name__)
+      self._logger.debug('Initializing Environment')
 
-    #Simulation
+    # Simulation
     self._simulation_instance = None
 
-    #Networking
-    self._stream = None
+    # Networking
     self._connected = False
     self._awaiting_response = False
+    self._ip = ip
+    self._port = port
+    self._external_on_connected_callback = on_connected_callback
+    self._external_on_disconnected_callback = on_disconnected_callback
+
+    # Environment
+    self._latest_received_state = None
 
     if not connect_to_running and not self._simulation_instance:
-      if self._start_instance(name, path_to_executatble_directory, ip, port):
-        self._logger.debug('successfully started environment ' + str(name))
-        time.sleep(8)
+      if self.__start_instance__(name, path_to_executables_directory, ip,
+                                 port):
+        if self._debug_logging:
+          self._logger.debug('successfully started environment ' + str(
+              name))
+          self._logger.debug('waiting ' + str(seconds_before_connect) +
+                             'seconds for ' + str(name) + ' to accept clients')
+        time.sleep(seconds_before_connect)
       else:
-        self._logger.debug('could not start environment ' + str(name))
-    self._connect(ip, port, on_connected_callback)
+        if self._debug_logging:
+          self._logger.debug('could not start environment ' + str(name))
+    self.__connect__()
 
-  def _start_instance(self, name, path_to_executatble_directory, ip, port):
-    path_to_executatble = os.path.join(path_to_executatble_directory, name)
-    args = shlex.split('-ip ' + str(ip) + ' -port ' + str(port) + ' -screen-fullscreen 0 -screen-height 500 -screen-width 500')# -batchmode -nographics')
-    print([path_to_executatble]+args)
-    self._simulation_instance = subprocess.Popen([path_to_executatble]+args) # Figure out have to parameterise unity executable
-    #time.sleep(8) # Not good a callback would be better.
+  def __start_instance__(self, name, path_to_executables_directory, ip, port):
+    path_to_executable = os.path.join(path_to_executables_directory, name)
+    args = shlex.split(
+        '-ip ' + str(ip) + ' -port ' + str(port) +
+        ' -screen-fullscreen 0 -screen-height 500 -screen-width 500'
+    )  # -batchmode -nographics')
+    print([path_to_executable] + args)
+    self._simulation_instance = subprocess.Popen(
+        [path_to_executable] +
+        args)  # Figure out have to parameterise unity executable
+    # time.sleep(8) # Not good a callback would be better.
     if self._simulation_instance:
-      self._logger.debug('Started executable ' + str(name))
+      if self._debug_logging:
+        self._logger.debug('Successfully started executable ' + str(name))
       return True
     else:
-      self._logger.debug('Failed to start executable ' + str(name))
+      if self._debug_logging:
+        self._logger.debug('Failed to start executable ' + str(name))
       return False
 
-  def _internal_on_connected_callback(self, stream, on_connected_callback):
-    self._stream = stream
+  def __on_connected_callback__(self):
     self._connected = True
-    on_connected_callback()
+    if self._external_on_connected_callback:
+      self._external_on_connected_callback()
 
-  def is_connected(self):
-    return self._connected
+  def __on_disconnected_callback__(self):
+    self._connected = False
+    if self._external_on_disconnected_callback:
+      self._external_on_disconnected_callback()
 
-  def _connect(self, ip, port, on_connected_callback):
-    self._logger.debug('Connecting to server')
-    start_connect_thread(ip, port, functools.partial(self._internal_on_connected_callback, on_connected_callback=on_connected_callback))
+  def __on_step_done_callback__(self):
+    self._awaiting_response = False
 
-  def get_environment(self):
-    message = synchronous_receive_message(self._stream)
-    return message
+  def __connect__(self):
+    if self._debug_logging:
+      self._logger.debug('Connecting to server')
+    messaging.start_setup_connection_thread(self.__on_connected_callback__,
+                                            self._ip,
+                                            self._port)
 
-  def step(self, reaction, callback=None):
-    self._logger.debug('Step')
-    sent_callback = print
-    self._awaiting_response = True
-    #start_send_msg_thread(self._stream, action, sent_callback)
-    #start_recv_msg_thread(self._stream, callback)
-    send_reaction(self._stream, reaction, sent_callback)
-    if callback:
-      recv_msg(self._stream, callback)
-      self._awaiting_response = False
+  def __get_state__(self, on_step_done_callback=None):
+    if on_step_done_callback:
+      messaging.start_receive_state_thread(on_step_done_callback,
+                                           self.__timeout_callback__)
     else:
-      message = synchronous_receive_message(self._stream)
-      self._awaiting_response = False
-      return message
+      return messaging.receive_state(self.__timeout_callback__)
 
-  def reset(self, reaction, callback):
-    self._logger.debug('Reset')
-    send_reaction(self._stream, reaction, print)
-    message = synchronous_receive_message(self._stream)
-    return message
-    #start_send_msg_thread(self._stream, action)
-    #start_recv_msg_thread(self._stream, callback)
-
-  def close(self, callback=None):
-    self._logger.debug('Close')
-    if self._connected:
-      self._stream.close()
-      self._stream = None
-      self._connected = False
-      if self._simulation_instance != None:
-        self._simulation_instance.terminate()
-      if callback:
-        callback()
-
+  def __timeout_callback__(self):
+    self._connected = False
+    print('Trying to reconnect to server')
+    messaging.close_connection(
+        on_disconnect_callback=self.__on_disconnected_callback__())
+    self.__connect__()
 
   def __del__(self):
     self.close()
 
-
   def __str__(self):
     return '<NeodroidEnvironment>'
+
+  def is_connected(self):
+    return self._connected
+
+  def step(self,
+           input_reaction = None,
+           on_step_done_callback = None,
+           on_reaction_sent_callback = None):
+    if self._debug_logging:
+      self._logger.debug('Step')
+    if self._latest_received_state:
+      input_reaction = verify_reaction(input_reaction,
+                                       self._latest_received_state.get_actors().values())
+    else:
+      input_reaction = verify_reaction(input_reaction, None)
+    self._awaiting_response = True
+    if self._connected:
+      if on_reaction_sent_callback:
+        messaging.start_send_reaction_thread(input_reaction,
+                                             on_reaction_sent_callback)
+      else:
+        messaging.send_reaction(input_reaction)
+
+      message = self.__get_state__(on_step_done_callback)
+      if message:
+        self._awaiting_response = False
+        self._latest_received_state = message
+        return (message.get_observers(),
+                message.get_reward_for_last_step(),
+                message.get_interrupted())
+    else:
+      if self._debug_logging:
+        self._logger.debug('Is not connected to environment')
+    return (None,
+            None,
+            None)
+
+  def reset(self, input_configuration):  # , on_reset_callback=None):
+    if self._debug_logging:
+      self._logger.debug('Reset')
+
+    # messaging.start_send_configuration_thread(input_configuration,
+    #                                      on_reset_callback)
+    # message = messaging.receive_state(self.__timeout_callback__())
+    return self.step(input_configuration)
+
+  def close(self, callback=None):
+    if self._debug_logging:
+      self._logger.debug('Close')
+    if self._connected:
+      self._connected = False
+      if self._simulation_instance is not None:
+        self._simulation_instance.terminate()
+      if callback:
+        callback()
+

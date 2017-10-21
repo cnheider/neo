@@ -1,23 +1,30 @@
 class Motor(object):
-  _binary:bool
-  _energy_cost:float
-  _name:str
-
-  def __init__(self, name, obj_tuple):
+  def __init__(self, name, binary, energy_cost, energy_spent):
     self._name = name
-    self.unpack(obj_tuple)
+    self._binary = binary
+    self._energy_cost = energy_cost
+    self._energy_spent = energy_spent
 
-  def unpack(self, obj_tuple):
-    self._binary = obj_tuple[0]
-    self._energy_cost = obj_tuple[1]
+  def get_name(self):
+    return self._name
+
+  def get_binary(self):
+    return self._binary
+
+  def get_energy_cost(self):
+    return self._energy_cost
+
+  def get_energy_spent(self):
+    return self._energy_spent
 
   def __repr__(self):
-    return  '        <Motor>\n'+\
-            '          <name>'+ self._name.decode('utf-8')+'</name>\n'+ \
-            '          <binary>' + str(self._binary) + '</binary>\n' + \
-            '          <energy_cost>' + str(self._energy_cost) + '</energy_cost>\n' + \
-            '        </Motor>\n'
-
+    return '        <Motor>\n' + \
+           '          <name>' + str(self._name.decode('utf-8')) + \
+           '</name>\n' + \
+           '          <binary>' + str(self._binary) + '</binary>\n' + \
+           '          <energy_cost>' + \
+           str(self._energy_cost) + '</energy_cost>\n' + \
+           '        </Motor>\n'
 
   def __str__(self):
     return self.__repr__()

@@ -1,22 +1,13 @@
-from typing import List
-
-from neodroid.models.motor import Motor
-
-
 class Actor(object):
-  _name: str
-  _position: List[float]
-  _rotation: List[float]
-  _motors: List[Motor]
-
-  def __init__(self, name, obj_tuple):
+  def __init__(self, name, position, rotation, direction, motors):
     self._name = name
-    self.unpack(obj_tuple)
+    self._position = position
+    self._rotation = rotation
+    self._direction = direction
+    self._motors = motors
 
-  def unpack(self, obj_tuple):
-    self._position = obj_tuple[1]
-    self._rotation = obj_tuple[2]
-    self._motors = {key: Motor(key,motor) for (key,motor) in obj_tuple[0][1].items()}
+  def get_name(self):
+    return self._name
 
   def get_position(self):
     return self._position
@@ -24,16 +15,24 @@ class Actor(object):
   def get_rotation(self):
     return self._rotation
 
+  def get_direction(self):
+    return self._direction
+
+  def get_motors(self):
+    return self._motors
+
   def __repr__(self):
-    motors_str = ''.join([str(motor.__repr__()) for motor in self._motors.values()])
+    motors_str = ''.join([str(motor.__repr__()) for motor in
+                          self.get_motors().values()])
 
     return '    <Actor>\n' + \
            '      <name>' + self._name.decode('utf-8') + '</name>\n' + \
            '      <position>' + str(self._position) + '</position>\n' + \
            '      <rotation>' + str(self._rotation) + '</rotation>\n' + \
-           '      <Motors>\n' +\
-                  motors_str +\
-           '      </Mctors>\n'+\
+           '      <direction>' + str(self._direction) + '</direction>\n' + \
+           '      <Motors>\n' + \
+           motors_str + \
+           '      </Motors>\n' + \
            '    </Actor>\n'
 
   def __str__(self):
